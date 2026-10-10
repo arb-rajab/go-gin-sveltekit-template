@@ -1,0 +1,29 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# No `namespace:` field: rollout.sh passes `-n <namespace>` to every kubectl
+# call, so this base stays reusable if the namespace name changes.
+
+resources:
+  - backend-config.yaml
+  - postgres.yaml
+  - migration-job.yaml
+  - backend.yaml
+  - frontend.yaml
+  - ingress.yaml
+  - networkpolicy.yaml
+
+configMapGenerator:
+  - name: starterapp-migrations
+    files:
+      # Explicit list, not a directory glob, so a stray file in
+      # backend/migrations/ can never be applied by accident. Add a line here
+      # whenever a new migration pair is added.
+      - ../../../backend/migrations/000001_create_operators.up.sql
+      - ../../../backend/migrations/000001_create_operators.down.sql
+
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/part-of: starterapp
+      app.kubernetes.io/managed-by: kustomize

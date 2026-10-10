@@ -1,0 +1,37 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+# rollout.sh overwrites the two `newTag` values below (via `kustomize edit set
+# image`) before every apply; the committed values are placeholders.
+images:
+  - name: starterapp-backend
+    newName: ghcr.io/OWNER/starterapp-backend
+    newTag: latest
+  - name: starterapp-frontend
+    newName: ghcr.io/OWNER/starterapp-frontend
+    newTag: latest
+
+patches:
+  # Real ingress hostname. Must match optional/terraform's ingress_hostname.
+  - target:
+      kind: Ingress
+      name: starterapp
+    patch: |-
+      - op: replace
+        path: /spec/tls/0/hosts/0
+        value: starterapp.example.com
+      - op: replace
+        path: /spec/rules/0/host
+        value: starterapp.example.com
+
+  # Production sizing: base's requests and limits are dev-shaped minimums.
+  - target:
+      kind: Deployment
+      name: backend
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 512Mi

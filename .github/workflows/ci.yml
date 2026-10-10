@@ -1,0 +1,256 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Least privilege for the GITHUB_TOKEN; jobs that need more declare it themselves.
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend (lint, vet, tests, vuln scan, migrations)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    # Service images come from mirror.gcr.io (a cache of popular Docker Hub
+    # images). If a tag 404s there, use the plain Docker Hub name.
+    services:
+      postgres:
+        image: mirror.gcr.io/library/postgres:16-alpine
+        env:
+          POSTGRES_USER: starterapp
+          POSTGRES_PASSWORD: starterapp
+          POSTGRES_DB: starterapp
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U starterapp -d starterapp"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://starterapp:starterapp@localhost:5432/starterapp?sslmode=disable
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          # Same minor as the `go` line in backend/go.mod and the Dockerfile's
+          # golang image. check-latest picks up the newest patch release.
+          go-version: "1.26"
+          check-latest: true
+          cache-dependency-path: backend/go.sum
+
+      - name: gofmt
+        run: test -z "$(gofmt -l .)"
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.13.2
+          working-directory: backend
+
+      - name: Install migrate CLI
+        run: go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.1
+
+      # The tests run against a real Postgres, so migrations apply first.
+      - name: Apply migrations before tests
+        run: migrate -path=./migrations -database="$DATABASE_URL" up
+
+      # -p 1 runs package test binaries one at a time: they share one database
+      # and insert and delete operator rows, so parallel packages would race.
+      - name: go test
+        run: go test ./... -race -p 1
+
+      # govulncheck can need a newer Go than the pinned toolchain; setup-go
+      # sets GOTOOLCHAIN=local, which blocks the automatic download, so allow
+      # it for this step only.
+      - name: govulncheck
+        env:
+          GOTOOLCHAIN: auto
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+      - name: Verify down migrations reverse cleanly, then re-apply up
+        run: |
+          migrate -path=./migrations -database="$DATABASE_URL" down -all
+          migrate -path=./migrations -database="$DATABASE_URL" up
+
+  frontend:
+    name: Frontend (lint, type-check, build, tests)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: eslint and prettier
+        run: npm run lint
+
+      - name: svelte-check
+        run: npm run check
+
+      - name: build
+        run: npm run build
+
+      - name: test
+        run: npm test
+
+      - name: npm audit
+        run: npm audit --omit=dev
+
+  serverless-example:
+    name: Serverless example (vet, tests)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: optional/serverless/example-function
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26"
+          check-latest: true
+          cache-dependency-path: optional/serverless/example-function/go.sum
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test ./... -race
+
+  # Offline validation of the deployment layer: no cluster or cloud
+  # credentials. `terraform fmt` is a syntax check and `kubectl kustomize`
+  # renders the production overlay without contacting an API server.
+  iac-and-k8s-manifests-validate:
+    name: Terraform fmt and Kubernetes manifest build (offline)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+
+      - name: terraform fmt -check
+        working-directory: optional/terraform
+        run: terraform fmt -check -diff -recursive
+
+      - name: kubectl kustomize build (production overlay)
+        run: >-
+          kubectl kustomize --load-restrictor LoadRestrictionsNone
+          optional/k8s/overlays/production
+          > /dev/null
+
+  gitleaks:
+    name: Secret scanning (gitleaks)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Gates on the OSV database across the Go modules and the frontend lockfile,
+  # including dev dependencies, which `npm audit --omit=dev` skips.
+  # Exceptions live, dated, in osv-scanner.toml.
+  dependency-scan:
+    name: Dependency vulnerability scan (osv-scanner)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Run osv-scanner
+        uses: google/osv-scanner-action/osv-scanner-action@a345acffa64b0eaede81a3d9aae6141214d9c8fc # v2.6.0
+        with:
+          scan-args: |-
+            --config=osv-scanner.toml
+            --lockfile=backend/go.mod
+            --lockfile=optional/serverless/example-function/go.mod
+            --lockfile=frontend/package-lock.json
+
+  codeql:
+    name: CodeQL
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      security-events: write
+    strategy:
+      matrix:
+        include:
+          - language: go
+            build-mode: manual
+          - language: javascript-typescript
+            build-mode: none
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: matrix.language == 'go'
+        with:
+          go-version: "1.26"
+          check-latest: true
+          cache-dependency-path: backend/go.sum
+
+      - uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+
+      # The Go module lives in backend/, so autobuild at the repo root would
+      # find nothing to build.
+      - name: Build Go module
+        if: matrix.language == 'go'
+        working-directory: backend
+        run: go build ./...
+
+      - uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          category: "/language:${{ matrix.language }}"
+
+  # CodeQL for the GitHub Actions workflows themselves (injection via untrusted
+  # event data, over-broad token permissions, unsafe checkouts).
+  codeql-actions:
+    name: CodeQL (actions)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          languages: actions
+          build-mode: none
+
+      - uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          category: "/language:actions"

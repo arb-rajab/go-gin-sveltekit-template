@@ -1,0 +1,28 @@
+# Postgres is reachable only from the backend and the migration Job at the
+# network layer, not just by convention. No namespace-wide default-deny is
+# declared: that also needs explicit allows for DNS and the ingress
+# controller's namespace, which vary per cluster and CNI and are easy to get
+# subtly wrong without a live cluster to test against. Add one once you can.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-allow-backend-and-migrate
+  labels:
+    app.kubernetes.io/part-of: starterapp
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: backend
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: starterapp-migrate
+      ports:
+        - protocol: TCP
+          port: 5432

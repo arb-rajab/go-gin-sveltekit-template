@@ -1,0 +1,16 @@
+# Copy to terraform.tfvars and fill in real values. Never commit
+# terraform.tfvars itself: it holds real secrets (see .gitignore).
+
+kubeconfig_path = "~/.kube/config"
+kube_context    = "" # empty = current context
+namespace       = "starterapp"
+
+acme_email       = "you@example.com"
+ingress_hostname = "starterapp.example.com"
+use_staging_acme = true # flip to false only once DNS + ingress work end to end
+
+postgres_user     = "starterapp"
+postgres_password = "" # generate with: openssl rand -base64 24
+postgres_db       = "starterapp"
+
+session_signing_secret = "" # generate with: openssl rand -base64 32

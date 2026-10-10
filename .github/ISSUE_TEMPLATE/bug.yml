@@ -1,0 +1,22 @@
+name: Bug report
+description: Something isn't working as expected
+labels: ["type/bug"]
+body:
+  - type: textarea
+    attributes:
+      label: What happened
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Version / commit
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Steps to reproduce

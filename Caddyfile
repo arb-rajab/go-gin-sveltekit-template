@@ -1,0 +1,14 @@
+# TLS termination for the browser-facing frontend.
+#
+# `tls internal` issues a certificate from Caddy's own local CA (kept in the
+# caddy_data volume), so browsers warn that it is not trusted. For a real
+# public domain, replace the site address with your domain and delete the
+# `tls internal` line to get a Let's Encrypt certificate.
+{
+	auto_https disable_redirects
+}
+
+localhost, 127.0.0.1 {
+	tls internal
+	reverse_proxy frontend:3000
+}

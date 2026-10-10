@@ -1,0 +1,22 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard
+  enable:
+    - gocritic
+    - revive
+    # Context propagation is load-bearing for graceful shutdown: every blocking
+    # operation must observe cancellation.
+    - contextcheck # flags a context.Context not propagated from its parent
+    - containedctx # flags a context.Context stored in a struct field
+    - fatcontext # flags a context.Context created/nested inside a loop
+    - noctx # flags an HTTP request built without a context.Context
+    - bodyclose # flags an unclosed HTTP response body
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

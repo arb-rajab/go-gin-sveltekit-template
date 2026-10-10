@@ -1,0 +1,18 @@
+# osv-scanner configuration for the "Dependency vulnerability scan" CI job.
+#
+# Add an entry only for a finding you have reviewed and cannot fix yet. Every
+# entry is a dated exception, not a permanent suppression: once `ignoreUntil`
+# passes, the finding fails the scan again and a human has to either renew the
+# entry (re-confirming the reason still holds) or delete it (because a fix
+# shipped). Entries are by advisory ID, so a NEW advisory against the same
+# package still fails the scan.
+#
+# Format:
+#
+# [[IgnoredVulns]]
+# id = "GHSA-xxxx-xxxx-xxxx"
+# ignoreUntil = 2099-01-01
+# reason = """
+# What the advisory is, why it cannot be fixed now (no patched release, or a
+# breaking upgrade), and why it is not reachable in production.
+# """

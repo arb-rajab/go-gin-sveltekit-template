@@ -1,0 +1,4 @@
+# Known gitleaks false positives, one fingerprint per finding
+# (commit:file:rule:line). Each entry skips that one finding only; anything
+# new still fails the scan. Add a comment above every entry saying why it is
+# a false positive.

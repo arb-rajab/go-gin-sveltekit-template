@@ -1,0 +1,31 @@
+# All traffic goes to the SvelteKit frontend, which proxies to the backend
+# server-side (the backend is not exposed through the Ingress). `host` is a
+# placeholder; overlays/production patches it to the real hostname, which must
+# match the ingress_hostname given to optional/terraform so cert-manager's
+# HTTP-01 challenge and this Ingress agree on what they are proving.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: starterapp
+  annotations:
+    cert-manager.io/cluster-issuer: starterapp-letsencrypt
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  labels:
+    app.kubernetes.io/part-of: starterapp
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - starterapp.example.invalid # placeholder, patched per overlay
+      secretName: starterapp-tls
+  rules:
+    - host: starterapp.example.invalid # placeholder, patched per overlay
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 3000

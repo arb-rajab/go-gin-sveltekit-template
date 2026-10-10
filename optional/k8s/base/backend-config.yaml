@@ -1,0 +1,9 @@
+# Non-secret backend configuration. Secrets live in starterapp-app-secrets.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: starterapp-backend-config
+  labels:
+    app.kubernetes.io/part-of: starterapp
+data:
+  LISTEN_ADDR: ":8080"

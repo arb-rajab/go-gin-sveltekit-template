@@ -1,0 +1,33 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  starterapp example function: a standalone, stateless AWS Lambda behind an
+  HTTP API. It has no database. Replace the handler with your own logic.
+
+Globals:
+  Function:
+    Timeout: 5
+    MemorySize: 128
+
+Resources:
+  GreetFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: bootstrap
+      Runtime: provided.al2023
+      Architectures:
+        - x86_64
+      Events:
+        Greet:
+          Type: HttpApi
+          Properties:
+            Path: /greet
+            Method: post
+    Metadata:
+      BuildMethod: makefile
+
+Outputs:
+  GreetApiUrl:
+    Description: Invoke URL for the /greet endpoint
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com/greet"

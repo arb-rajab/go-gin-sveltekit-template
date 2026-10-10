@@ -1,0 +1,96 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-starterapp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-starterapp}
+      POSTGRES_DB: ${POSTGRES_DB:-starterapp}
+    ports:
+      - "5435:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-starterapp} -d ${POSTGRES_DB:-starterapp}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    image: migrate/migrate:v4.19.1
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend/migrations:/migrations:ro
+    command:
+      - "-path=/migrations"
+      - "-database=${DATABASE_URL:-postgres://starterapp:starterapp@postgres:5432/starterapp?sslmode=disable}"
+      - "up"
+    restart: "no"
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgres://starterapp:starterapp@postgres:5432/starterapp?sslmode=disable}
+      # Required, no default: an unset value fails `compose up` here instead of
+      # the backend starting with a missing secret. Generate with:
+      #   openssl rand -base64 32
+      SESSION_SIGNING_SECRET: "${SESSION_SIGNING_SECRET:?SESSION_SIGNING_SECRET is required; generate one with: openssl rand -base64 32}"
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM_ADDRESS: ${SMTP_FROM_ADDRESS:-}
+      SMTP_IMPLICIT_TLS: ${SMTP_IMPLICIT_TLS:-false}
+    # Reachable only on the compose network: the browser goes through the
+    # proxy (TLS) to the frontend, never to the backend directly.
+    expose:
+      - "8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: ${BACKEND_URL:-http://backend:8080}
+    expose:
+      - "3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # TLS termination. The session cookie is Secure, so the browser must reach
+  # the frontend over HTTPS. `tls internal` uses Caddy's own local CA, so the
+  # browser shows a not-trusted warning; see Caddyfile for real domains.
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    ports:
+      - "8443:443"
+    depends_on:
+      - frontend
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

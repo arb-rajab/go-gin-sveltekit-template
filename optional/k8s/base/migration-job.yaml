@@ -1,0 +1,41 @@
+# Kubernetes equivalent of docker-compose.yml's `migrate` service. A completed
+# Job's pod template is immutable, so re-running migrations for a new release
+# means deleting the Job and re-creating it; rollout.sh does exactly that, so
+# the fixed name below is safe across releases.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: starterapp-migrate
+  labels:
+    app.kubernetes.io/name: starterapp-migrate
+    app.kubernetes.io/part-of: starterapp
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: starterapp-migrate
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: migrate/migrate:v4.19.1
+          args:
+            - "-path=/migrations"
+            - "-database=$(DATABASE_URL)"
+            - "up"
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: starterapp-app-secrets
+                  key: DATABASE_URL
+          volumeMounts:
+            - name: migrations
+              mountPath: /migrations
+              readOnly: true
+      volumes:
+        - name: migrations
+          configMap:
+            name: starterapp-migrations
